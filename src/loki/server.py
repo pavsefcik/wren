@@ -3,27 +3,49 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional
+from typing import Any, List, Optional, Union
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .engine import Engine, EngineConfig, load_engine, stream
 
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    # OpenAI clients send content as a plain string, a list of parts
+    # (e.g. [{"type": "text", "text": "hi"}]), or null (tool-call messages).
+    content: Optional[Union[str, List[Any]]] = None
 
 
 class ChatRequest(BaseModel):
     model: str = "loki"
     messages: List[ChatMessage]
-    max_tokens: Optional[int] = 1024
+    max_tokens: Optional[int] = Field(default=1024, alias="max_completion_tokens")
     temperature: Optional[float] = 0.2
+    top_p: Optional[float] = None
     stream: Optional[bool] = False
+
+    model_config = {"populate_by_name": True}
+
+
+def _text_of(content) -> str:
+    """Flatten an OpenAI content field (string, list of parts, or None) to text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict):
+            text = item.get("text") or item.get("content")
+            if text:
+                parts.append(str(text))
+    return "\n".join(parts)
 
 
 def build_app(engine: Engine, model_name: str) -> FastAPI:
@@ -36,7 +58,7 @@ def build_app(engine: Engine, model_name: str) -> FastAPI:
     @api.post("/v1/chat/completions")
     async def chat(req: ChatRequest):
         history = [
-            {"role": m.role, "content": [{"type": "text", "text": m.content}]}
+            {"role": m.role, "content": [{"type": "text", "text": _text_of(m.content)}]}
             for m in req.messages
         ]
         prompt = engine.chat_prompt(history)
@@ -44,6 +66,8 @@ def build_app(engine: Engine, model_name: str) -> FastAPI:
             "max_tokens": req.max_tokens,
             "temperature": req.temperature,
         }
+        if req.top_p is not None:
+            kwargs["top_p"] = req.top_p
         resp_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
 
         if req.stream:
