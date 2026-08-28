@@ -102,6 +102,7 @@ def serve(
     prefetch: bool = False,
     prefetch_top_k: int = 16,
     prefetch_lookahead: int = 0,
+    predictor: Optional[str] = None,
     host: str = "127.0.0.1",
     port: int = 8080,
 ):
@@ -112,6 +113,7 @@ def serve(
         prefetch=prefetch,
         prefetch_top_k=prefetch_top_k,
         prefetch_lookahead=prefetch_lookahead,
+        predictor=predictor,
     )
     engine = load_engine(cfg)
     api = build_app(engine, model)

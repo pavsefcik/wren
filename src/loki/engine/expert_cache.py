@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import mlx.core as mx
 import numpy as np
@@ -24,13 +24,11 @@ class ExpertCache:
         store: ExpertStore,
         budget_bytes: int,
         eviction: str = "lfu",
-        prefetch_policy: Optional["PrefetchPolicy"] = None,
         prefetcher=None,
     ):
         self.store = store
         self.budget = budget_bytes
         self.eviction = eviction
-        self.prefetch_policy = prefetch_policy
         self.prefetcher = prefetcher
 
         # (layer, expert) -> {proj: {part: mx.array}}
@@ -42,6 +40,7 @@ class ExpertCache:
         self.total_bytes = 0
         self.hits = 0
         self.misses = 0
+        self.prefetch_hits = 0
         self.evictions = 0
         self._clock = 0.0
         self._lock = threading.Lock()
@@ -75,12 +74,12 @@ class ExpertCache:
                     self._insert(layer, e, now)
 
     def _insert(self, layer: int, e: int, now: float) -> None:
-        import numpy as np
-
         entry: Dict[str, Dict[str, mx.array]] = {}
         nbytes = 0
 
         ready = self.prefetcher.take(layer, e) if self.prefetcher is not None else None
+        if ready is not None:
+            self.prefetch_hits += 1
 
         for proj in PROJECTIONS:
             pd: Dict[str, mx.array] = {}
@@ -117,6 +116,7 @@ class ExpertCache:
                 "hits": self.hits,
                 "misses": self.misses,
                 "hit_rate": (self.hits / total) if total else 0.0,
+                "prefetch_hits": self.prefetch_hits,
                 "resident_bytes": self.total_bytes,
                 "budget_bytes": self.budget,
                 "evictions": self.evictions,
@@ -144,35 +144,3 @@ class ExpertCache:
                 del self._last[key]
                 del self._bytes[key]
                 self.evictions += 1
-
-
-class PrefetchPolicy:
-    """Decides which experts to prefetch from router logits.
-
-    V1 heuristics (no training):
-
-    * ``top_k``       -- keep the top-K experts per layer warm (>= num_experts_per_tok).
-    * ``lookahead``   -- prefetch the current layer's top-K experts for the
-                         *next* layer as a cross-layer co-activation guess.
-    """
-
-    def __init__(self, num_experts_per_tok: int, top_k: int = 16, lookahead: int = 8):
-        self.num_experts_per_tok = num_experts_per_tok
-        self.top_k = top_k
-        self.lookahead = lookahead
-
-    def hints(self, layer: int, gate_probs, num_layers: int) -> List[Tuple[int, int]]:
-        """Return a list of ``(layer, expert_id)`` to prefetch.
-
-        ``gate_probs`` is the router softmax for the current layer, shape
-        ``[..., num_experts]``.  Across all tokens in the current step we
-        aggregate to a per-expert score and keep the top-K.
-        """
-        p = np.asarray(gate_probs)
-        probs = p.reshape(-1, p.shape[-1]).sum(axis=0)
-        top = probs.argsort()[::-1][: self.top_k].tolist()
-
-        hints = [(layer, e) for e in top]
-        if layer + 1 < num_layers and self.lookahead > 0:
-            hints += [(layer + 1, e) for e in top[: self.lookahead]]
-        return hints

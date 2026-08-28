@@ -48,7 +48,8 @@ def test_streaming_moe_matches_stock():
     rng = np.random.default_rng(1)
     x = mx.array(rng.normal(0, 1, size=(1, 5, hidden)).astype(np.float32))
     gate_w = mx.array(rng.normal(0, 0.02, size=(num_experts, hidden)).astype(np.float32))
-    gates = mx.softmax(x @ gate_w.T, axis=-1, precise=True)
+    logits = x @ gate_w.T
+    gates = mx.softmax(logits, axis=-1, precise=True)
     inds = mx.argpartition(gates, kth=-top_k, axis=-1)[..., -top_k:]
     scores = mx.take_along_axis(gates, inds, axis=-1)
     scores = scores / scores.sum(axis=-1, keepdims=True)
@@ -85,7 +86,7 @@ def test_streaming_moe_matches_stock():
     ctx = MoEContext(cache=cache, layer=0, num_layers=1, group_size=64, bits=4)
     from loki.engine.moe import _switch
 
-    y = _switch(ctx, x, inds, gates)
+    y = _switch(ctx, x, inds, gates, logits)
     patched_y = (y * scores[..., None]).sum(axis=-2)
 
     mx.eval(stock_y, patched_y)

@@ -8,7 +8,7 @@ from typing import Optional
 
 import mlx.core as mx
 
-from .expert_cache import ExpertCache, PrefetchPolicy
+from .expert_cache import ExpertCache
 from .expert_store import ExpertStore
 from .moe import patch_moe
 
@@ -21,6 +21,8 @@ class EngineConfig:
     prefetch: bool = False
     prefetch_top_k: int = 16
     prefetch_lookahead: int = 0
+    predictor: Optional[str] = None
+    record_trace: Optional[str] = None
     max_kv_heads: Optional[int] = None
     max_tokens: int = 1024
     temperature: float = 0.2
@@ -38,6 +40,7 @@ class Engine:
         self.store = store
         self.cache = cache
         self.cfg = cfg
+        self.recorder = None
 
     @property
     def num_layers(self) -> int:
@@ -59,6 +62,11 @@ class Engine:
             messages,
             enable_thinking=self.cfg.enable_thinking,
         )
+
+    def close(self) -> None:
+        if self.recorder is not None:
+            self.recorder.close()
+            self.recorder = None
 
 
 class TextProcessor:
@@ -102,24 +110,49 @@ def load_engine(cfg: EngineConfig) -> Engine:
     store = ExpertStore(Path(model_path))
     budget = int(cfg.cache_gb * (1024 ** 3))
 
-    policy = None
+    predictor = None
     prefetcher = None
-    if cfg.prefetch:
-        policy = PrefetchPolicy(
-            num_experts_per_tok=_num_experts_per_tok(model),
+    recorder = None
+
+    if cfg.predictor is not None:
+        from .predictor import LearnedPredictor
+
+        predictor = LearnedPredictor(
+            cfg.predictor,
             top_k=cfg.prefetch_top_k,
-            lookahead=cfg.prefetch_lookahead,
+            lookahead=8,
         )
+
+    if predictor is not None or cfg.prefetch:
         from .prefetch import Prefetcher
 
         prefetcher = Prefetcher(store)
 
+    if cfg.record_trace is not None:
+        from .trace import TraceRecorder
+
+        recorder = TraceRecorder(cfg.record_trace)
+
     cache = ExpertCache(store, budget_bytes=budget, eviction=cfg.eviction, prefetcher=prefetcher)
+    if prefetcher is not None:
+        prefetcher.cache = cache
 
     group_size, bits, mode = _quant_params(model)
-    patch_moe(model, cache, policy=policy, group_size=group_size, bits=bits, mode=mode)
+    patch_moe(
+        model,
+        cache,
+        predictor=predictor,
+        recorder=recorder,
+        group_size=group_size,
+        bits=bits,
+        mode=mode,
+        prefetch_top_k=cfg.prefetch_top_k if cfg.prefetch else 0,
+        prefetch_lookahead=cfg.prefetch_lookahead,
+    )
 
-    return Engine(model, processor, store, cache, cfg)
+    engine = Engine(model, processor, store, cache, cfg)
+    engine.recorder = recorder
+    return engine
 
 
 def generate(engine: Engine, prompt: str, **kwargs) -> str:
@@ -152,14 +185,6 @@ def _gen_kwargs(engine: Engine, overrides: dict) -> dict:
     }
     k.update(overrides)
     return k
-
-
-def _num_experts_per_tok(model) -> int:
-    lm = model.language_model
-    try:
-        return lm.model.layers[0].mlp.top_k
-    except Exception:
-        return 8
 
 
 def _quant_params(model) -> tuple:
