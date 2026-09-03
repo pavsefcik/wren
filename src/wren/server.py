@@ -1,4 +1,4 @@
-"""OpenAI-compatible loopback server for LOKI."""
+"""OpenAI-compatible loopback server for WREN."""
 
 from __future__ import annotations
 
@@ -21,12 +21,19 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    model: str = "loki"
+    model: str = "wren"
     messages: List[ChatMessage]
     max_tokens: Optional[int] = Field(default=1024, alias="max_completion_tokens")
     temperature: Optional[float] = 0.2
     top_p: Optional[float] = None
     stream: Optional[bool] = False
+    enable_thinking: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Override thinking mode for this request. True emits Qwen3 reasoning, "
+            "False skips it. Omit to use the engine default."
+        ),
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -49,7 +56,7 @@ def _text_of(content) -> str:
 
 
 def build_app(engine: Engine, model_name: str) -> FastAPI:
-    api = FastAPI(title="LOKI", version="0.1.0")
+    api = FastAPI(title="WREN", version="0.1.0")
 
     @api.get("/v1/models")
     def models():
@@ -61,13 +68,15 @@ def build_app(engine: Engine, model_name: str) -> FastAPI:
             {"role": m.role, "content": [{"type": "text", "text": _text_of(m.content)}]}
             for m in req.messages
         ]
-        prompt = engine.chat_prompt(history)
+        prompt = engine.chat_prompt(history, enable_thinking=req.enable_thinking)
         kwargs = {
             "max_tokens": req.max_tokens,
             "temperature": req.temperature,
         }
         if req.top_p is not None:
             kwargs["top_p"] = req.top_p
+        if req.enable_thinking is not None:
+            kwargs["enable_thinking"] = req.enable_thinking
         resp_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
 
         if req.stream:

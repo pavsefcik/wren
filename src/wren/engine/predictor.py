@@ -2,7 +2,7 @@
 
 A small MLP (``256 -> hidden -> 256``) maps the router logits at layer ``L`` to
 a score vector over experts at layer ``L+1``.  It is trained on routing traces
-collected by :class:`~loki.engine.trace.TraceRecorder`, and at inference time its
+collected by :class:`~wren.engine.trace.TraceRecorder`, and at inference time its
 top-K predictions are handed to the prefetcher so the next layer's experts are
 already on their way while the current layer computes.
 """

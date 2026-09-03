@@ -1,11 +1,11 @@
-"""Benchmark warm decode speed and cache hit rate for LOKI."""
+"""Benchmark warm decode speed and cache hit rate for WREN."""
 
 import sys
 import time
 
 import mlx.core as mx
 
-from loki.engine import EngineConfig, load_engine
+from wren.engine import EngineConfig, load_engine
 
 
 def main():

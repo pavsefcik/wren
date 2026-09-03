@@ -1,4 +1,4 @@
-"""LOKI command-line interface: chat REPL, one-shot generation, server, training."""
+"""WREN command-line interface: chat REPL, one-shot generation, server, training."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .engine import Engine, EngineConfig, generate, load_engine, stream
 from .server import serve
 
 app = typer.Typer(
-    name="loki",
+    name="wren",
     help="Run Qwen3.6-35B-A3B MoE with predictive expert prefetching on Apple Silicon.",
     no_args_is_help=True,
 )
@@ -65,7 +65,7 @@ def chat(
 
     history = []
     console.print(
-        "[bold]LOKI[/bold] — type [cyan]/exit[/cyan] to quit, [cyan]/clear[/cyan] to reset."
+        "[bold]WREN[/bold] — type [cyan]/exit[/cyan] to quit, [cyan]/clear[/cyan] to reset."
     )
     try:
         while True:
@@ -89,7 +89,7 @@ def chat(
             prompt = engine.chat_prompt(history)
 
             t0 = time.monotonic()
-            console.print("[bold blue]Loki>[/bold blue] ", end="")
+            console.print("[bold blue]Wren>[/bold blue] ", end="")
             text = ""
             for chunk in stream(engine, prompt):
                 text += chunk

@@ -1,4 +1,4 @@
-"""LOKI engine: predictive MoE expert streaming."""
+"""WREN engine: predictive MoE expert streaming."""
 
 from .engine import Engine, EngineConfig, generate, load_engine, stream
 from .expert_cache import ExpertCache

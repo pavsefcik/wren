@@ -11,9 +11,9 @@ from pathlib import Path
 import mlx.core as mx
 import numpy as np
 
-from loki.engine.expert_cache import ExpertCache
-from loki.engine.expert_store import ExpertStore
-from loki.engine.moe import MoEContext
+from wren.engine.expert_cache import ExpertCache
+from wren.engine.expert_store import ExpertStore
+from wren.engine.moe import MoEContext
 
 
 def _write_synthetic(path: Path, num_experts: int, hidden: int, inter: int):
@@ -84,7 +84,7 @@ def test_streaming_moe_matches_stock():
     stock_y = (xd * scores[..., None]).sum(axis=-2)
 
     ctx = MoEContext(cache=cache, layer=0, num_layers=1, group_size=64, bits=4)
-    from loki.engine.moe import _switch
+    from wren.engine.moe import _switch
 
     y = _switch(ctx, x, inds, gates, logits)
     patched_y = (y * scores[..., None]).sum(axis=-2)

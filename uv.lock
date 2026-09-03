@@ -692,7 +692,7 @@ wheels = [
 ]
 
 [[package]]
-name = "loki"
+name = "wren"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

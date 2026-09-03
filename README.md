@@ -1,16 +1,16 @@
-# LOKI
+# WREN
 
 **LO**kale **K**ünstliche **I**ntelligenz — a Python CLI + OpenAI-compatible server that runs
 **Qwen3.6-35B-A3B** (a 35B-parameter Mixture-of-Experts, 3B active/token) on a memory-constrained
 Apple Silicon Mac by streaming only the experts the router actually picks, from SSD.
 
 Inspired by [TurboFieldfare](https://github.com/drumih/turbo-fieldfare), but with a twist: instead
-of loading experts cold on every miss, LOKI **predicts** which experts are likely next and prefetches
+of loading experts cold on every miss, WREN **predicts** which experts are likely next and prefetches
 them into a bounded RAM cache so decode doesn't stall on SSD reads.
 
 ## How it works
 
-The 4-bit checkpoint is ~18–20 GB, but only ~3 GB of parameters are active per token. LOKI keeps the
+The 4-bit checkpoint is ~18–20 GB, but only ~3 GB of parameters are active per token. WREN keeps the
 shared core resident and streams the routed experts:
 
 | Tier | Contents | Resident |
@@ -29,7 +29,7 @@ shared core resident and streams the routed experts:
      hidden state (`h_{L+1} ≈ h_L`) to forecast the next layer's experts. Predicts the next layer's
      top-8 experts with **~80% recovery** (vs ~3% random).
   2. **Learned MLP** — a small 256→256→256 network trained on routing traces
-     (`loki train-predictor`) that maps layer-`L` router logits to layer-`L+1` expert scores.
+     (`wren train-predictor`) that maps layer-`L` router logits to layer-`L+1` expert scores.
 
 Measured on an 18 GB M3 Pro (4-bit): ~9 tok/s steady-state, ~7.5 GB peak, ~80% expert-cache hit rate.
 
@@ -57,7 +57,7 @@ On this hardware the story is nuanced and worth reading before enabling `--prefe
 ## Install
 
 ```shell
-git clone https://github.com/pavsefcik/loki && cd loki
+git clone https://github.com/pavsefcik/wren && cd wren
 uv sync
 ```
 
@@ -68,19 +68,19 @@ The first run downloads `mlx-community/Qwen3.6-35B-A3B-4bit` (~19 GB) into the H
 ### Chat REPL
 
 ```shell
-uv run loki chat --cache-gb 6
+uv run wren chat --cache-gb 6
 ```
 
 ### One-shot generation
 
 ```shell
-uv run loki run "Name three planets in our solar system." --max-tokens 64
+uv run wren run "Name three planets in our solar system." --max-tokens 64
 ```
 
 ### OpenAI-compatible server (loopback)
 
 ```shell
-uv run loki serve --cache-gb 6 --port 8080
+uv run wren serve --cache-gb 6 --port 8080
 ```
 
 ```shell
@@ -94,9 +94,9 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 Record routing traces while you use the model, then train a small cross-layer expert predictor:
 
 ```shell
-uv run loki run "..." --record-trace traces.jsonl
-uv run loki train-predictor --traces traces.jsonl --output predictor.npz
-uv run loki chat --predictor predictor.npz --prefetch
+uv run wren run "..." --record-trace traces.jsonl
+uv run wren train-predictor --traces traces.jsonl --output predictor.npz
+uv run wren chat --predictor predictor.npz --prefetch
 ```
 
 ### Key options
@@ -116,7 +116,7 @@ uv run loki chat --predictor predictor.npz --prefetch
 ## Architecture
 
 ```
-src/loki/
+src/wren/
   cli.py                 # typer CLI: chat + run + serve + train-predictor
   server.py              # FastAPI /v1/chat/completions (streaming + JSON)
   engine/

@@ -6,7 +6,7 @@ semantics and appends every ``L -> L+1`` layer transition to the trace file.
 
 import sys
 
-from loki.engine import EngineConfig, generate, load_engine
+from wren.engine import EngineConfig, generate, load_engine
 
 PROMPTS = [
     "Explain how a computer compiles source code into machine code.",

@@ -52,15 +52,23 @@ class Engine:
             "peak_memory_bytes": int(mx.get_peak_memory()),
         }
 
-    def chat_prompt(self, messages: list) -> str:
-        """Format a list of chat messages into a prompt string."""
+    def chat_prompt(
+        self, messages: list, enable_thinking: Optional[bool] = None
+    ) -> str:
+        """Format a list of chat messages into a prompt string.
+
+        ``enable_thinking`` overrides the engine config for this call only
+        (None = use the configured default).
+        """
         from mlx_vlm.prompt_utils import apply_chat_template
 
+        if enable_thinking is None:
+            enable_thinking = self.cfg.enable_thinking
         return apply_chat_template(
             self.processor,
             self.model.config,
             messages,
-            enable_thinking=self.cfg.enable_thinking,
+            enable_thinking=enable_thinking,
         )
 
     def close(self) -> None:

@@ -132,7 +132,7 @@ def make_moe_forward():
         scores = mx.take_along_axis(gates, inds, axis=-1)
         scores = scores / scores.sum(axis=-1, keepdims=True)
 
-        y = _switch(self._loki, x, inds, gates, logits)
+        y = _switch(self._wren, x, inds, gates, logits)
         y = (y * scores[..., None]).sum(axis=-2)
 
         shared_y = self.shared_expert(x)
@@ -178,7 +178,7 @@ def patch_moe(
             )
             ahead.append((gate, ratio))
 
-        mlp._loki = MoEContext(
+        mlp._wren = MoEContext(
             cache=cache,
             layer=i,
             predictor=predictor,
