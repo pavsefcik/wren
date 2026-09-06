@@ -1,6 +1,6 @@
 # WREN
 
-**LO**kale **K**ünstliche **I**ntelligenz — a Python CLI + OpenAI-compatible server that runs
+a Python CLI + OpenAI-compatible server that runs
 **Qwen3.6-35B-A3B** (a 35B-parameter Mixture-of-Experts, 3B active/token) on a memory-constrained
 Apple Silicon Mac by streaming only the experts the router actually picks, from SSD.
 
