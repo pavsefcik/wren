@@ -132,10 +132,6 @@ def _chunk(resp_id: str, model: str, text: str, finish: str) -> str:
 def serve(
     model: str = "mlx-community/Qwen3.6-35B-A3B-4bit",
     cache_gb: float = 6.0,
-    prefetch: bool = False,
-    prefetch_top_k: int = 16,
-    prefetch_lookahead: int = 0,
-    predictor: Optional[str] = None,
     host: str = "127.0.0.1",
     port: int = 8080,
 ):
@@ -146,10 +142,6 @@ def serve(
     cfg = EngineConfig(
         model_id=model,
         cache_gb=cache_gb,
-        prefetch=prefetch,
-        prefetch_top_k=prefetch_top_k,
-        prefetch_lookahead=prefetch_lookahead,
-        predictor=predictor,
     )
     engine = load_engine(cfg)
     api = build_app(engine, model)

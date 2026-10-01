@@ -83,10 +83,10 @@ def test_streaming_moe_matches_stock():
     xd = stock_qmm("down_proj", h).squeeze(-2)
     stock_y = (xd * scores[..., None]).sum(axis=-2)
 
-    ctx = MoEContext(cache=cache, layer=0, num_layers=1, group_size=64, bits=4)
+    ctx = MoEContext(cache=cache, layer=0, group_size=64, bits=4)
     from wren.engine.moe import _switch
 
-    y = _switch(ctx, x, inds, gates, logits)
+    y = _switch(ctx, x, inds)
     patched_y = (y * scores[..., None]).sum(axis=-2)
 
     mx.eval(stock_y, patched_y)

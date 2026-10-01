@@ -13,7 +13,6 @@ import time
 from typing import Dict, List, Tuple
 
 import mlx.core as mx
-import numpy as np
 
 from .expert_store import PARTS, PROJECTIONS, ExpertStore
 
@@ -24,12 +23,10 @@ class ExpertCache:
         store: ExpertStore,
         budget_bytes: int,
         eviction: str = "lfu",
-        prefetcher=None,
     ):
         self.store = store
         self.budget = budget_bytes
         self.eviction = eviction
-        self.prefetcher = prefetcher
 
         # (layer, expert) -> {proj: {part: mx.array}}
         self._entries: Dict[Tuple[int, int], Dict[str, Dict[str, mx.array]]] = {}
@@ -40,7 +37,6 @@ class ExpertCache:
         self.total_bytes = 0
         self.hits = 0
         self.misses = 0
-        self.prefetch_hits = 0
         self.evictions = 0
         self._clock = 0.0
         self._lock = threading.Lock()
@@ -77,21 +73,11 @@ class ExpertCache:
         entry: Dict[str, Dict[str, mx.array]] = {}
         nbytes = 0
 
-        ready = self.prefetcher.take(layer, e) if self.prefetcher is not None else None
-        if ready is not None:
-            self.prefetch_hits += 1
-
         for proj in PROJECTIONS:
             pd: Dict[str, mx.array] = {}
             for part in PARTS:
-                if ready is not None:
-                    dtype = self.store.dtype_of(layer, proj, part)
-                    shape = self.store.inner_shape(layer, proj, part)
-                    arr = mx.array(np.frombuffer(ready[proj][part], dtype=dtype).reshape(shape))
-                else:
-                    arr = self.store.expert(layer, proj, part, e)
-                pd[part] = arr
-                nbytes += arr.nbytes
+                pd[part] = self.store.expert(layer, proj, part, e)
+                nbytes += pd[part].nbytes
             entry[proj] = pd
         key = (layer, e)
         self._entries[key] = entry
@@ -116,7 +102,6 @@ class ExpertCache:
                 "hits": self.hits,
                 "misses": self.misses,
                 "hit_rate": (self.hits / total) if total else 0.0,
-                "prefetch_hits": self.prefetch_hits,
                 "resident_bytes": self.total_bytes,
                 "budget_bytes": self.budget,
                 "evictions": self.evictions,

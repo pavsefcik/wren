@@ -32,11 +32,6 @@ class EngineConfig:
     model_id: str = "mlx-community/Qwen3.6-35B-A3B-4bit"
     cache_gb: float = 6.0
     eviction: str = "lfu"
-    prefetch: bool = False
-    prefetch_top_k: int = 16
-    prefetch_lookahead: int = 0
-    predictor: Optional[str] = None
-    record_trace: Optional[str] = None
     max_kv_heads: Optional[int] = None
     max_tokens: int = 1024
     temperature: float = 0.2
@@ -54,7 +49,6 @@ class Engine:
         self.store = store
         self.cache = cache
         self.cfg = cfg
-        self.recorder = None
 
     @property
     def num_layers(self) -> int:
@@ -86,9 +80,9 @@ class Engine:
         )
 
     def close(self) -> None:
-        if self.recorder is not None:
-            self.recorder.close()
-            self.recorder = None
+        """Release the engine's resources."""
+        # No background workers to shut down; kept for API symmetry.
+        pass
 
 
 class TextProcessor:
@@ -163,49 +157,18 @@ def load_engine(cfg: EngineConfig) -> Engine:
     store = ExpertStore(Path(model_path))
     budget = int(cfg.cache_gb * (1024 ** 3))
 
-    predictor = None
-    prefetcher = None
-    recorder = None
-
-    if cfg.predictor is not None:
-        from .predictor import LearnedPredictor
-
-        predictor = LearnedPredictor(
-            cfg.predictor,
-            top_k=cfg.prefetch_top_k,
-            lookahead=8,
-        )
-
-    if predictor is not None or cfg.prefetch:
-        from .prefetch import Prefetcher
-
-        prefetcher = Prefetcher(store)
-
-    if cfg.record_trace is not None:
-        from .trace import TraceRecorder
-
-        recorder = TraceRecorder(cfg.record_trace)
-
-    cache = ExpertCache(store, budget_bytes=budget, eviction=cfg.eviction, prefetcher=prefetcher)
-    if prefetcher is not None:
-        prefetcher.cache = cache
+    cache = ExpertCache(store, budget_bytes=budget, eviction=cfg.eviction)
 
     group_size, bits, mode = _quant_params(model)
     patch_moe(
         model,
         cache,
-        predictor=predictor,
-        recorder=recorder,
         group_size=group_size,
         bits=bits,
         mode=mode,
-        prefetch_top_k=cfg.prefetch_top_k if cfg.prefetch else 0,
-        prefetch_lookahead=cfg.prefetch_lookahead,
     )
 
-    engine = Engine(model, processor, store, cache, cfg)
-    engine.recorder = recorder
-    return engine
+    return Engine(model, processor, store, cache, cfg)
 
 
 def generate(engine: Engine, prompt: str, **kwargs) -> str:

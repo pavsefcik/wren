@@ -1,4 +1,4 @@
-"""WREN command-line interface: chat REPL, one-shot generation, server, training."""
+"""WREN command-line interface: chat REPL, one-shot generation, server."""
 
 from __future__ import annotations
 
@@ -22,16 +22,16 @@ logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
 
 app = typer.Typer(
     name="wren",
-    help="Run Qwen3.6-35B-A3B MoE with predictive expert prefetching on Apple Silicon.",
+    help="Run Qwen3.6-35B-A3B MoE with streaming expert caching on Apple Silicon.",
     no_args_is_help=True,
 )
 console = Console()
 
-# Qwen3.6 wraps its reasoning in the literal "<think>" / "</think>" tokens.
+# Qwen3.6 wraps its reasoning in the literal " thinking" / " response" tokens.
 # They are added tokens (not special), so they decode as plain text and
 # arrive in the streamed output like any other word. The chat template
-# emits "<think>" as part of the prompt, so the stream is: reasoning,
-# then the "</think>" marker, then the answer.
+# emits " thinking" as part of the prompt, so the stream is: reasoning,
+# then the " response" marker, then the answer.
 _THINK_START = "<think>"
 _THINK_END = "</think>"
 
@@ -41,9 +41,9 @@ def _styled_chunks(
 ) -> Iterator[tuple[str, Optional[str]]]:
     """Yield ``(text, style)`` pairs for streaming model output.
 
-    With ``thinking`` enabled, everything before the model's ``</think>``
+    With ``thinking`` enabled, everything before the model's `` response``
     marker is emitted with the ``dim`` style (gray) and the marker tokens
-    themselves (``<think>`` and ``</think>``) are dropped. Without it,
+    themselves (`` thinking`` and `` response``) are dropped. Without it,
     text passes through untouched.
     """
     style: Optional[str] = "dim" if thinking else None
@@ -59,7 +59,7 @@ def _styled_chunks(
                 break
 
             if not started:
-                # Drop a leading "<think>" marker (the chat template usually
+                # Drop a leading " thinking" marker (the chat template usually
                 # already emits it, but the model may too).
                 if _THINK_START.startswith(buf):
                     break  # partial marker: wait for the rest
@@ -119,38 +119,17 @@ def _styled_final_text(text: str, thinking: bool) -> Text:
 _COMMON = {
     "model": typer.Option("mlx-community/Qwen3.6-35B-A3B-4bit", "--model"),
     "cache_gb": typer.Option(6.0, "--cache-gb"),
-    "prefetch": typer.Option(False, "--prefetch", help="Enable predictive prefetch."),
-    "prefetch_top_k": typer.Option(16, "--prefetch-top-k"),
-    "prefetch_lookahead": typer.Option(0, "--prefetch-lookahead"),
-    "predictor": typer.Option(None, "--predictor", help="Path to a trained predictor .npz."),
-    "record_trace": typer.Option(None, "--record-trace", help="File to append routing traces to."),
 }
 
 
-def _cfg(
-    model, cache_gb, prefetch, prefetch_top_k, prefetch_lookahead, predictor, record_trace, **kw
-) -> EngineConfig:
-    return EngineConfig(
-        model_id=model,
-        cache_gb=cache_gb,
-        prefetch=prefetch,
-        prefetch_top_k=prefetch_top_k,
-        prefetch_lookahead=prefetch_lookahead,
-        predictor=predictor,
-        record_trace=record_trace,
-        **kw,
-    )
+def _cfg(model, cache_gb, **kw) -> EngineConfig:
+    return EngineConfig(model_id=model, cache_gb=cache_gb, **kw)
 
 
 @app.command()
 def chat(
     model: str = _COMMON["model"],
     cache_gb: float = _COMMON["cache_gb"],
-    prefetch: bool = _COMMON["prefetch"],
-    prefetch_top_k: int = _COMMON["prefetch_top_k"],
-    prefetch_lookahead: int = _COMMON["prefetch_lookahead"],
-    predictor: str = _COMMON["predictor"],
-    record_trace: str = _COMMON["record_trace"],
     max_tokens: int = typer.Option(1024, "--max-tokens"),
     temperature: float = typer.Option(0.2, "--temperature"),
     enable_thinking: bool = typer.Option(
@@ -158,7 +137,7 @@ def chat(
         "--enable-thinking",
         help=(
             "Emit Qwen3.6 reasoning before the answer (rendered dim; the "
-            "'</think>' marker is hidden)."
+            "' response' marker is hidden)."
         ),
     ),
     stats: bool = typer.Option(False, "--stats", help="Print expert-cache stats after each turn."),
@@ -166,8 +145,7 @@ def chat(
     """Interactive multi-turn chat."""
     set_process_title(model)
     cfg = _cfg(
-        model, cache_gb, prefetch, prefetch_top_k, prefetch_lookahead, predictor,
-        record_trace, max_tokens=max_tokens, temperature=temperature,
+        model, cache_gb, max_tokens=max_tokens, temperature=temperature,
         enable_thinking=enable_thinking,
     )
     engine = _load(cfg)
@@ -222,11 +200,6 @@ def run(
     prompt: str = typer.Argument(..., help="Prompt text."),
     model: str = _COMMON["model"],
     cache_gb: float = _COMMON["cache_gb"],
-    prefetch: bool = _COMMON["prefetch"],
-    prefetch_top_k: int = _COMMON["prefetch_top_k"],
-    prefetch_lookahead: int = _COMMON["prefetch_lookahead"],
-    predictor: str = _COMMON["predictor"],
-    record_trace: str = _COMMON["record_trace"],
     max_tokens: int = typer.Option(1024, "--max-tokens"),
     temperature: float = typer.Option(0.2, "--temperature"),
     enable_thinking: bool = typer.Option(
@@ -234,7 +207,7 @@ def run(
         "--enable-thinking",
         help=(
             "Emit Qwen3.6 reasoning before the answer (rendered dim; the "
-            "'</think>' marker is hidden)."
+            "' response' marker is hidden)."
         ),
     ),
     show_stats: bool = typer.Option(False, "--stats"),
@@ -242,8 +215,7 @@ def run(
     """One-shot generation from a single prompt."""
     set_process_title(model)
     cfg = _cfg(
-        model, cache_gb, prefetch, prefetch_top_k, prefetch_lookahead, predictor,
-        record_trace, max_tokens=max_tokens, temperature=temperature,
+        model, cache_gb, max_tokens=max_tokens, temperature=temperature,
         enable_thinking=enable_thinking,
     )
     engine = _load(cfg)
@@ -268,10 +240,6 @@ def run(
 def serve_command(
     model: str = _COMMON["model"],
     cache_gb: float = _COMMON["cache_gb"],
-    prefetch: bool = _COMMON["prefetch"],
-    prefetch_top_k: int = _COMMON["prefetch_top_k"],
-    prefetch_lookahead: int = _COMMON["prefetch_lookahead"],
-    predictor: str = _COMMON["predictor"],
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8080, "--port"),
 ):
@@ -280,29 +248,9 @@ def serve_command(
     serve(
         model=model,
         cache_gb=cache_gb,
-        prefetch=prefetch,
-        prefetch_top_k=prefetch_top_k,
-        prefetch_lookahead=prefetch_lookahead,
-        predictor=predictor,
         host=host,
         port=port,
     )
-
-
-@app.command("train-predictor")
-def train_predictor(
-    traces: str = typer.Option(..., "--traces", help="Trace file from --record-trace."),
-    output: str = typer.Option("predictor.npz", "--output"),
-    hidden: int = typer.Option(256, "--hidden"),
-    epochs: int = typer.Option(20, "--epochs"),
-    lr: float = typer.Option(3e-3, "--lr"),
-):
-    """Train the learned cross-layer expert predictor from routing traces."""
-    from .engine.predictor import train_predictor as _train
-
-    console.print(f"Training predictor on [cyan]{traces}[/cyan]...")
-    result = _train(traces, output, hidden=hidden, epochs=epochs, lr=lr)
-    console.print(f"Saved [cyan]{output}[/cyan]: {result}")
 
 
 def _load(cfg: EngineConfig) -> Engine:
