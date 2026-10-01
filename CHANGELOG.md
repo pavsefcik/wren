@@ -5,7 +5,21 @@ All notable changes to wren are documented here. Format follows
 sync across `VERSION`, `pyproject.toml`, and `src/wren/__init__.py` via
 `scripts/version.py`.
 
-## [0.2.0] - 2026-10-01
+## [0.3.0] - 2026-10-01
+
+### Added
+- **Polished `wren serve` output.** The server now shows a bounded-resource
+  banner (model, experts/layers, expert bytes on disk, streaming-cache budget,
+  endpoint) after loading, replaces the model-loading wait with a spinner, and
+  silences uvicorn's startup/access log noise. A live **traffic box** grows as
+  requests arrive (last 20, then scrolls), reporting each request's timestamp,
+  full-stream latency, token count, and throughput — or the status code and
+  reason on errors. The box only tracks inference (`POST /v1/chat/completions`);
+  health/model-listing routes are ignored. Loader INFO and mlx-lm's raw-stdout
+  "maximum recommended size" warnings are muted, keeping the display clean.
+  Controlled entirely from rich; no new dependencies.
+
+## [0.2.0] - 2026-10-
 
 ### Removed
 - **Predictive expert prefetching.** Removed the learned expert predictor

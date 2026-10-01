@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
+import logging
+import os
+import time
 import uuid
+from datetime import datetime
 from typing import Any, List, Optional, Union
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from rich import box
+from rich.console import Console, Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from .engine import Engine, EngineConfig, load_engine, stream
 
@@ -129,6 +141,188 @@ def _chunk(resp_id: str, model: str, text: str, finish: str) -> str:
     )
 
 
+def _print_banner(console: Console, engine, cfg, host: str, port: int) -> None:
+    """Render the static WREN header once the model is loaded."""
+    from math import ceil
+
+    store = engine.store
+    grid = Table.grid(padding=(0, 1))
+    grid.add_column(style="bold cyan")
+    grid.add_column(overflow="fold")
+    grid.add_row("model   ", cfg.model_id)
+    grid.add_row(
+        "experts ", f"[bold]{store.num_experts}[/bold] / layer × {store.num_layers} layers"
+    )
+    grid.add_row(
+        "expert  ",
+        f"[bold]{store.total_expert_bytes() / 2**30:.1f} GiB[/bold] on disk · "
+        f"[bold]{ceil(cfg.cache_gb):d} GiB[/bold] streaming cache",
+    )
+    grid.add_row("endpoint", f"{host}:{port}  [dim]OpenAI /v1/chat/completions[/dim]")
+    panel = Panel(
+        grid,
+        title="[bold]WREN[/bold]",
+        title_align="left",
+        subtitle="[dim]Ctrl+C to quit[/dim]",
+        subtitle_align="right",
+        border_style="cyan",
+        box=box.ROUNDED,
+    )
+    console.print(panel)
+
+
+class _TrafficMonitor:
+    """A growing, bounded window of recent requests, redrawn in place."""
+
+    def __init__(self, console: Console, engine, max_rows: int = 20):
+        self.console = console
+        self.tokenizer = engine.processor.tokenizer
+        self.max_rows = max_rows
+        self.rows: list[Text] = []
+        self._live: Optional[Live] = None
+
+    def start(self) -> None:
+        self._live = Live(
+            self._render(), console=self.console, refresh_per_second=8, transient=False
+        )
+        self._live.start()
+
+    def stop(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
+
+    def _render(self) -> Panel:
+        group = Group(*self.rows) if self.rows else Text("[dim]waiting for first request…[/dim]")
+        return Panel(
+            group,
+            title=f"traffic ({len(self.rows)} req)",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+
+    def _record(self, row: Text) -> None:
+        self.rows.append(row)
+        if len(self.rows) > self.max_rows:
+            self.rows.pop(0)
+        if self._live is not None:
+            self._live.update(self._render(), refresh=True)
+
+    def add_stream(self, dt: float, text: str) -> None:
+        n_tok = len(self.tokenizer.encode(text)) if text else 0
+        rate = f"{n_tok / dt:.0f} tok/s" if dt > 0 else "—"
+        stamp = datetime.now().strftime("%H:%M:%S")
+        n_tok_str = f"{n_tok:,}"
+        self._record(
+            Text.assemble(
+                (f"[{stamp}] ", "dim"),
+                (f"· {dt:.1f}s · ", "dim"),
+                (n_tok_str, "bold"),
+                (f" tok · {rate}", "dim"),
+            )
+        )
+
+    def add_error(self, dt: float, status: int, reason: str) -> None:
+        stamp = datetime.now().strftime("%H:%M:%S")
+        detail = f" · {reason}" if reason else ""
+        self._record(
+            Text(
+                f"[{stamp}] · {status}{detail}",
+                style="bold red",
+            )
+        )
+
+
+def _sse_text(full: str) -> str:
+    """Concatenate the delta.content across all SSE chunks."""
+    out: list[str] = []
+    for line in full.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = line[len("data: "):]
+        if payload == "[DONE]":
+            continue
+        try:
+            obj = json.loads(payload)
+        except Exception:
+            continue
+        try:
+            content = obj["choices"][0]["delta"]["content"]
+        except Exception:
+            continue
+        if content:
+            out.append(content)
+    return "".join(out)
+
+
+def _json_text(full: str) -> str:
+    try:
+        return json.loads(full)["choices"][0]["message"]["content"]
+    except Exception:
+        return ""
+
+
+def _error_reason(full: str) -> str:
+    try:
+        detail = json.loads(full).get("detail") or json.loads(full).get("message")
+    except Exception:
+        return ""
+    if isinstance(detail, list):
+        detail = "; ".join(
+            str(d.get("msg", d)) for d in detail[:2] if isinstance(d, dict)
+        )
+    return str(detail) if detail else ""
+
+
+# mlx-lm dumps a load-time model-size warning straight to stdout via bare
+# ``print()`` (not the logging module), so logger levels can't silence it. We
+# discard it by redirecting stdout while a request is being served.
+_DEVNULL = open(os.devnull, "w")
+
+
+def _traffic_middleware(app, monitor: _TrafficMonitor):
+    """Raw ASGI middleware that measures each request to first/last byte."""
+
+    async def traffic(scope, receive, send):
+        if scope["type"] != "http":
+            return await app(scope, receive, send)
+        # Only inference calls show up in the traffic box; leave health/model
+        # listing and any other routes untouched (no body buffering).
+        if scope.get("method") != "POST" or not scope.get("path", "").endswith(
+            "/chat/completions"
+        ):
+            return await app(scope, receive, send)
+        started = time.monotonic()
+        status = 500
+        body: list[bytes] = []
+
+        async def send_wrapper(message):
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+            elif message["type"] == "http.response.body" and message.get("body"):
+                body.append(message["body"])
+            await send(message)
+
+        try:
+            with contextlib.redirect_stdout(_DEVNULL):
+                await app(scope, receive, send_wrapper)
+        except Exception:
+            monitor.add_error(time.monotonic() - started, 500, "exception")
+            raise
+
+        dt = time.monotonic() - started
+        full = b"".join(body).decode("utf-8", "replace")
+        if status >= 400:
+            monitor.add_error(dt, status, _error_reason(full))
+        elif "[DONE]" in full:
+            monitor.add_stream(dt, _sse_text(full))
+        else:
+            monitor.add_stream(dt, _json_text(full))
+
+    return traffic
+
+
 def serve(
     model: str = "mlx-community/Qwen3.6-35B-A3B-4bit",
     cache_gb: float = 6.0,
@@ -143,6 +337,32 @@ def serve(
         model_id=model,
         cache_gb=cache_gb,
     )
-    engine = load_engine(cfg)
-    api = build_app(engine, model)
-    uvicorn.run(api, host=host, port=port)
+    console = Console()
+
+    # Mute everything the model/uvicorn would otherwise spew for the whole run:
+    # the loader's INFO chatter ("Local model ready") *and* the per-request
+    # WARNING from mlx-lm ("model close to maximum recommended size"). The live
+    # traffic box is deliberately the only activity on screen.
+    root = logging.getLogger()
+    prev_level = root.level
+    root.setLevel(logging.ERROR)
+    engine = None
+    monitor = None
+    try:
+        spinner = f"[bold]Loading {cfg.model_id}[/bold] … [dim]cache {cfg.cache_gb:.0f} GiB[/dim]"
+        with console.status(spinner):
+            engine = load_engine(cfg)
+
+        _print_banner(console, engine, cfg, host, port)
+        monitor = _TrafficMonitor(console, engine, max_rows=20)
+        monitor.start()
+
+        api = _traffic_middleware(build_app(engine, model), monitor)
+        # uvicorn's INFO startup lines + access logs are (also) turned off below.
+        uvicorn.run(api, host=host, port=port, log_level="warning")
+    finally:
+        if monitor is not None:
+            monitor.stop()
+        if engine is not None:
+            engine.close()
+        root.setLevel(prev_level)
