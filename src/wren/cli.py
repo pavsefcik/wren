@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Iterable, Iterator, Optional
 
 import typer
 from rich.console import Console
 from rich.text import Text
+from uvicorn.logging import DefaultFormatter
 
 from .engine import Engine, EngineConfig, generate, load_engine, stream
+from .proctitle import set_process_title
 from .server import serve
+
+# Match uvicorn's own log output (green level prefix) so engine messages blend in.
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(DefaultFormatter(fmt="%(levelprefix)s %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
 
 app = typer.Typer(
     name="wren",
@@ -156,6 +164,7 @@ def chat(
     stats: bool = typer.Option(False, "--stats", help="Print expert-cache stats after each turn."),
 ):
     """Interactive multi-turn chat."""
+    set_process_title(model)
     cfg = _cfg(
         model, cache_gb, prefetch, prefetch_top_k, prefetch_lookahead, predictor,
         record_trace, max_tokens=max_tokens, temperature=temperature,
@@ -231,6 +240,7 @@ def run(
     show_stats: bool = typer.Option(False, "--stats"),
 ):
     """One-shot generation from a single prompt."""
+    set_process_title(model)
     cfg = _cfg(
         model, cache_gb, prefetch, prefetch_top_k, prefetch_lookahead, predictor,
         record_trace, max_tokens=max_tokens, temperature=temperature,
@@ -266,6 +276,7 @@ def serve_command(
     port: int = typer.Option(8080, "--port"),
 ):
     """Serve the model on an OpenAI-compatible /v1 endpoint."""
+    set_process_title(model)
     serve(
         model=model,
         cache_gb=cache_gb,

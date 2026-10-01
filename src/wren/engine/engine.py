@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,19 @@ import mlx.core as mx
 from .expert_cache import ExpertCache
 from .expert_store import ExpertStore
 from .moe import patch_moe
+
+logger = logging.getLogger(__name__)
+
+# Same file filters mlx-vlm's `get_model_path` uses when pulling a repo.
+_ALLOW_PATTERNS = [
+    "*.json",
+    "*.safetensors",
+    "*.py",
+    "*.model",
+    "*.tiktoken",
+    "*.txt",
+    "*.jinja",
+]
 
 
 @dataclass
@@ -103,10 +117,41 @@ def _load_text_processor(model_path):
     return TextProcessor(hf_tokenizer, detokenizer_class(hf_tokenizer))
 
 
-def load_engine(cfg: EngineConfig) -> Engine:
-    from mlx_vlm.utils import StoppingCriteria, get_model_path, load_model
+def resolve_model_path(model_id: str) -> Path:
+    """Return the local path for ``model_id``, downloading only if needed.
 
-    model_path = get_model_path(cfg.model_id)
+    If ``model_id`` is a local directory, or a Hub repo that is already fully
+    cached, this returns immediately without hitting the network and without
+    printing any download/progress output. Only a genuine download emits the
+    Hugging Face progress bars.
+    """
+    path = Path(model_id)
+    if path.exists():
+        logger.info("Local model ready: %s", path)
+        return path
+
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import IncompleteSnapshotError, LocalEntryNotFoundError
+
+    try:
+        cached = snapshot_download(
+            repo_id=model_id,
+            allow_patterns=_ALLOW_PATTERNS,
+            local_files_only=True,
+        )
+    except (LocalEntryNotFoundError, IncompleteSnapshotError):
+        logger.info("Model %s not in local cache; downloading...", model_id)
+    else:
+        logger.info("Local model ready: %s", model_id)
+        return Path(cached)
+
+    return Path(snapshot_download(repo_id=model_id, allow_patterns=_ALLOW_PATTERNS))
+
+
+def load_engine(cfg: EngineConfig) -> Engine:
+    from mlx_vlm.utils import StoppingCriteria, load_model
+
+    model_path = resolve_model_path(cfg.model_id)
     model = load_model(model_path, lazy=True)
 
     # Text-only: load the tokenizer directly (the full AutoProcessor would

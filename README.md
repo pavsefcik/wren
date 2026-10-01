@@ -58,8 +58,19 @@ On this hardware the story is nuanced and worth reading before enabling `--prefe
 
 ```shell
 git clone https://github.com/pavsefcik/wren && cd wren
-uv sync
+scripts/bootstrap.sh            # builds a LEAN .venv (≈400 MB)
 ```
+
+The lean env installs `mlx-vlm` with `--no-deps` and skips the
+`datasets`/`pandas`/`pyarrow`/`opencv` packages it declares but wren's
+text-only path never imports (~280 MB of bloat). Run everything through
+`./.venv/bin/wren`.
+
+`pyproject.toml` is packaging metadata only — do **not** use `uv sync`/`uv run`
+to manage this env. Because `mlx-vlm` is only installable via a package manager
+together with its media/data-science tree, a `uv` sync would re-add the bloat
+(or strip the bootstrap packages). `scripts/bootstrap.sh` is the sole way to
+build the env. Optionally pass `WREN_DEV=0` to skip pytest/ruff.
 
 The first run downloads `mlx-community/Qwen3.6-35B-A3B-4bit` (~19 GB) into the Hugging Face cache.
 
@@ -68,19 +79,19 @@ The first run downloads `mlx-community/Qwen3.6-35B-A3B-4bit` (~19 GB) into the H
 ### Chat REPL
 
 ```shell
-uv run wren chat --cache-gb 6
+./.venv/bin/wren chat --cache-gb 6
 ```
 
 ### One-shot generation
 
 ```shell
-uv run wren run "Name three planets in our solar system." --max-tokens 64
+./.venv/bin/wren run "Name three planets in our solar system." --max-tokens 64
 ```
 
 ### OpenAI-compatible server (loopback)
 
 ```shell
-uv run wren serve --cache-gb 6 --port 8080
+./.venv/bin/wren serve --cache-gb 6 --port 8080
 ```
 
 ```shell
@@ -94,9 +105,9 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 Record routing traces while you use the model, then train a small cross-layer expert predictor:
 
 ```shell
-uv run wren run "..." --record-trace traces.jsonl
-uv run wren train-predictor --traces traces.jsonl --output predictor.npz
-uv run wren chat --predictor predictor.npz --prefetch
+./.venv/bin/wren run "..." --record-trace traces.jsonl
+./.venv/bin/wren train-predictor --traces traces.jsonl --output predictor.npz
+./.venv/bin/wren chat --predictor predictor.npz --prefetch
 ```
 
 ### Key options

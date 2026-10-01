@@ -140,6 +140,9 @@ def serve(
     port: int = 8080,
 ):
     """Serve the model on an OpenAI-compatible /v1 endpoint."""
+    from .proctitle import set_process_title
+
+    set_process_title(model)
     cfg = EngineConfig(
         model_id=model,
         cache_gb=cache_gb,

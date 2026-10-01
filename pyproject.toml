@@ -4,24 +4,13 @@ version = "0.1.0"
 description = "A CLI + OpenAI-compatible server that runs Qwen3.6-35B-A3B MoE on a memory-constrained Mac using predictive expert prefetching."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "mlx>=0.24.0",
-    "mlx-vlm==0.4.4",
-    "safetensors",
-    "huggingface-hub",
-    "fastapi",
-    "uvicorn",
-    "typer",
-    "rich",
-    "numpy",
-    "ml-dtypes>=0.6.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest",
-    "ruff",
-]
+# NOTE: wren deliberately declares NO runtime dependencies here. mlx-vlm is only
+# installable via a package manager together with its `datasets`/`opencv-python`
+# tree (~280 MB that wren, being text-only, never imports). `pyproject.toml` is
+# therefore packaging metadata only; the lean runtime env is built with
+#   scripts/bootstrap.sh   (installs mlx-vlm --no-deps + only the core deps)
+# and run via   ./.venv/bin/wren . Do NOT use `uv sync` / `uv run` to manage this
+# env — uv would re-add the bloat or strip the bootstrap packages.
 
 [project.scripts]
 wren = "wren.cli:app"
