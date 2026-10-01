@@ -5,6 +5,17 @@ All notable changes to wren are documented here. Format follows
 sync across `VERSION`, `pyproject.toml`, and `src/wren/__init__.py` via
 `scripts/version.py`.
 
+## [0.3.1] - 2026-10-01
+
+### Changed
+- **Deterministic start/exit framing for `wren serve`.** On launch the screen
+  is cleared so the WREN banner appears at the top of the terminal. On exit it
+  wipes itself and leaves a short note (`wren stopped · served N req · ran …`)
+  only. This avoids Rich Live's bottom-edge off-by-one that could leave a
+  stray/duplicated traffic-box border under uvicorn's Ctrl+C shutdown; the
+  live traffic box is now erased on stop rather than re-printed, and the
+  idle placeholder renders dimmed without leaking markup text.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added

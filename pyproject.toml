@@ -1,6 +1,6 @@
 [project]
 name = "wren"
-version = "0.3.0"
+version = "0.3.1"
 description = "A CLI + OpenAI-compatible server that runs Qwen3.6-35B-A3B MoE on a memory-constrained Mac using predictive expert prefetching."
 readme = "README.md"
 requires-python = ">=3.12"

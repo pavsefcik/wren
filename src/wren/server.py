@@ -141,6 +141,14 @@ def _chunk(resp_id: str, model: str, text: str, finish: str) -> str:
     )
 
 
+def _fmt_duration(secs: float) -> str:
+    """Format a duration for the exit note (e.g. '1m 05s')."""
+    secs = int(secs)
+    if secs < 60:
+        return f"{secs}s"
+    return f"{secs // 60}m {secs % 60:02d}s"
+
+
 def _print_banner(console: Console, engine, cfg, host: str, port: int) -> None:
     """Render the static WREN header once the model is loaded."""
     from math import ceil
@@ -182,8 +190,12 @@ class _TrafficMonitor:
         self._live: Optional[Live] = None
 
     def start(self) -> None:
+        # ``transient=True``: on exit the box is erased (clear-line sequences)
+        # rather than re-printed. Left ``False``, Rich re-renders the final
+        # frame on stop, and in a scrolled terminal that re-print lands a row
+        # off and leaves a duplicated top border under the banner.
         self._live = Live(
-            self._render(), console=self.console, refresh_per_second=8, transient=False
+            self._render(), console=self.console, refresh_per_second=8, transient=True
         )
         self._live.start()
 
@@ -193,7 +205,7 @@ class _TrafficMonitor:
             self._live = None
 
     def _render(self) -> Panel:
-        group = Group(*self.rows) if self.rows else Text("[dim]waiting for first request…[/dim]")
+        group = Group(*self.rows) if self.rows else Text("waiting for first request…", style="dim")
         return Panel(
             group,
             title=f"traffic ({len(self.rows)} req)",
@@ -338,6 +350,9 @@ def serve(
         cache_gb=cache_gb,
     )
     console = Console()
+    # Fresh top-of-terminal: clear whatever preceded us before drawing.
+    console.clear()
+    started = time.monotonic()
 
     # Mute everything the model/uvicorn would otherwise spew for the whole run:
     # the loader's INFO chatter ("Local model ready") *and* the per-request
@@ -366,3 +381,11 @@ def serve(
         if engine is not None:
             engine.close()
         root.setLevel(prev_level)
+        # Deterministic clean exit: wipe the screen and leave only a short note
+        # that wren stopped. (Rich Live's cursor accounting at the bottom edge
+        # is off by one row under uvicorn's Ctrl+C shutdown, so we don't rely
+        # on its erase.)
+        served = len(monitor.rows) if monitor is not None else 0
+        ran = _fmt_duration(time.monotonic() - started)
+        console.clear()
+        console.print(f"[dim]wren stopped · served {served} req · ran {ran}[/dim]")

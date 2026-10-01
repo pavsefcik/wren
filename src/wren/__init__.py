@@ -1,3 +1,3 @@
 """WREN: predictive MoE expert streaming for Qwen3.6-35B-A3B on Apple Silicon."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
