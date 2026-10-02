@@ -116,8 +116,9 @@ def resolve_model_path(model_id: str) -> Path:
 
     If ``model_id`` is a local directory, or a Hub repo that is already fully
     cached, this returns immediately without hitting the network and without
-    printing any download/progress output. Only a genuine download emits the
-    Hugging Face progress bars.
+    printing any download/progress output. A genuine download renders a single
+    Rich progress bar (spinner + size/speed/ETA) instead of huggingface_hub's
+    raw tqdm flood.
     """
     path = Path(model_id)
     if path.exists():
@@ -139,13 +140,25 @@ def resolve_model_path(model_id: str) -> Path:
         logger.info("Local model ready: %s", model_id)
         return Path(cached)
 
-    return Path(snapshot_download(repo_id=model_id, allow_patterns=_ALLOW_PATTERNS))
+    from .download import finish_download, rich_tqdm_class
+
+    try:
+        return Path(
+            snapshot_download(
+                repo_id=model_id,
+                allow_patterns=_ALLOW_PATTERNS,
+                tqdm_class=rich_tqdm_class,
+            )
+        )
+    finally:
+        finish_download()
 
 
-def load_engine(cfg: EngineConfig) -> Engine:
+def load_engine(cfg: EngineConfig, model_path: str | Path | None = None) -> Engine:
     from mlx_vlm.utils import StoppingCriteria, load_model
 
-    model_path = resolve_model_path(cfg.model_id)
+    if model_path is None:
+        model_path = resolve_model_path(cfg.model_id)
     model = load_model(model_path, lazy=True)
 
     # Text-only: load the tokenizer directly (the full AutoProcessor would

@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .engine import Engine, EngineConfig, load_engine, stream
+from .engine import Engine, EngineConfig, load_engine, resolve_model_path, stream
 
 
 class ChatMessage(BaseModel):
@@ -364,9 +364,15 @@ def serve(
     engine = None
     monitor = None
     try:
+        # Download first, *outside* any live display: a first run fetches ~20 GB
+        # and drives its own smooth Rich progress bar. Wrapping it in a
+        # `console.status` would suppress that bar and leave only the tiny
+        # spinner, so we let the download render, then show a loading spinner
+        # for the (already local) model instantiation.
+        model_path = resolve_model_path(cfg.model_id)
         spinner = f"[bold]Loading {cfg.model_id}[/bold] … [dim]cache {cfg.cache_gb:.0f} GiB[/dim]"
         with console.status(spinner):
-            engine = load_engine(cfg)
+            engine = load_engine(cfg, model_path)
 
         _print_banner(console, engine, cfg, host, port)
         monitor = _TrafficMonitor(console, engine, max_rows=20)

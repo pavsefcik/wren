@@ -5,6 +5,26 @@ All notable changes to wren are documented here. Format follows
 sync across `VERSION`, `pyproject.toml`, and `src/wren/__init__.py` via
 `scripts/version.py`.
 
+## [0.4.0] - 2026-10-02
+
+### Added
+- **`wren-launcher.zsh` — self-healing launcher.** Sourcing it defines a `wren`
+  shell function that runs `./.venv/bin/wren` directly (never `uv run`/`uv sync`,
+  which wren's dependency-free `pyproject.toml` forbids). If the lean env is
+  missing or is a bare uv-built env without `typer`, it rebuilds via
+  `scripts/bootstrap.sh` automatically and then launches.
+
+### Changed
+- **Smooth download progress.** First-run model fetches previously flooded
+  stderr with huggingface_hub's raw tqdm bars ("Fetching N files" / "Downloading
+  bytes" / "Reconstructing…"). `resolve_model_path` now hands `snapshot_download`
+  a custom `tqdm_class` (`engine/download.py`) that swallows the native output
+  and renders a single Rich widget — spinner plus live size, percent, speed, and
+  ETA computed from the reported byte counts (correct from the first frame, and
+  throttled to ~8 redraws/sec for smoothness). `wren serve` also downloads the
+  weights *before* entering its `Loading…` status spinner, so the two live
+  widgets no longer fight for the terminal.
+
 ## [0.3.1] - 2026-10-01
 
 ### Changed
