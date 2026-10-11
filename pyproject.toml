@@ -1,7 +1,7 @@
 [project]
 name = "wren"
 version = "0.4.0"
-description = "A CLI + OpenAI-compatible server that runs Qwen3.6-35B-A3B MoE on a memory-constrained Mac using predictive expert prefetching."
+description = "A CLI + OpenAI-compatible server that runs Qwen3.6-35B-A3B MoE on a memory-constrained Apple Silicon Mac by streaming routed experts from SSD."
 readme = "README.md"
 requires-python = ">=3.12"
 # NOTE: wren deliberately declares NO runtime dependencies here. mlx-vlm is only
